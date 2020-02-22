@@ -16,31 +16,39 @@
 
 
 int szpowerspectrum_init(
-                              struct background * pba,
-                              struct nonlinear * pnl,
-                              struct primordial * ppm,
-                              struct tszspectrum * ptsz
-			 )
+                          struct background * pba,
+                          struct nonlinear * pnl,
+                          struct primordial * ppm,
+                          struct tszspectrum * ptsz
+			                    )
 {
-
-
    select_multipole_array(ptsz);
    show_preamble_messages(pba,pnl,ppm,ptsz);
-   read_Planck_noise_map(ptsz);
+
+   if (ptsz->experiment == 0)
+      read_Planck_noise_map(ptsz);
+
+   //obsolete:
    external_pressure_profile_init(ptsz);
-   read_Zhao_CM_init(ptsz);
+
+   if (ptsz->concentration_parameter == 4)
+      read_Zhao_CM_init(ptsz);
+
    tabulate_sigma_and_dsigma_from_pk(pba,pnl,ppm,ptsz);
+
    initialise_and_allocate_memory(ptsz);
 
    //SO data and Functions
-   read_SO_Qfit(ptsz);
-   read_SO_noise(ptsz);
+
+   if (ptsz->experiment == 1){
+      read_SO_Qfit(ptsz);
+      read_SO_noise(ptsz);}
 
 
    if (ptsz->has_sz_ps + ptsz->has_hmf + ptsz->has_mean_y == _FALSE_)
    {
       if (ptsz->sz_verbose > 0)
-         printf("No SZ quantities requested. SZ ps module skipped.\n");
+         printf("->No SZ-y quantities requested. SZ ps module skipped.\n");
    }
 
    else
@@ -66,8 +74,8 @@ int szpowerspectrum_init(
 #endif
 
 	   class_alloc_parallel(Pvectsz,ptsz->tsz_size*sizeof(double),ptsz->error_message);
-
-       for(int i = 0; i<ptsz->tsz_size;i++) Pvectsz[i] = 0.;
+       int i;
+       for(i = 0; i<ptsz->tsz_size;i++) Pvectsz[i] = 0.;
 
 	   class_alloc_parallel(Pvecback,pba->bg_size*sizeof(double),ptsz->error_message);
 
@@ -108,10 +116,65 @@ for (index_integrand=0;index_integrand<ptsz->number_of_integrands;index_integran
    if (abort == _TRUE_) return _FAILURE_;
 
    ////////////////end - cl
+
+   if (ptsz->create_ref_trispectrum_for_cobaya){
+
+     char Filepath[_ARGUMENT_LENGTH_MAX_];
+     FILE *fp;
+
+     double ell;
+     double ell_prime;
+
+     int index_l;
+     int index_l_prime;
+
+     for (index_l=0;index_l<ptsz->nlSZ;index_l++)
+        for (index_l_prime=0;index_l_prime<index_l+1;index_l_prime++) {
+
+          ell_prime = ptsz->ell[index_l_prime];
+          ell = ptsz->ell[index_l];
+
+
+          ptsz->trispectrum_ref[index_l][index_l_prime] = ell*(ell+1.)/(2.*_PI_)*ell_prime*(ell_prime+1.)/(2.*_PI_)*ptsz->tllprime_sz[index_l][index_l_prime];
+
+          if(ptsz->sz_verbose>2) printf("%e\t%e\t%e\n",ell,ell_prime,ptsz->trispectrum_ref[index_l][index_l_prime]); 
+
+          ptsz->trispectrum_ref[index_l_prime][index_l] = ptsz->trispectrum_ref[index_l][index_l_prime];
+        };
+
+        sprintf(Filepath,
+                    "%s%s%s",
+                    ptsz->path_to_class,
+                    "/sz_auxiliary_files/cobaya_class_sz_likelihoods/cobaya_reference_trispectrum/",
+                    "tSZ_trispectrum_ref.txt");
+
+        fp=fopen(Filepath, "w");
+
+        for (index_l=0;index_l<ptsz->nlSZ;index_l++){
+         for (index_l_prime=0;index_l_prime<ptsz->nlSZ;index_l_prime++) {
+              fprintf(fp,"%e\t",ptsz->trispectrum_ref[index_l][index_l_prime]);
+           }
+           fprintf(fp,"\n");
+        }
+        fclose(fp);
+
+
+        sprintf(Filepath,
+            "%s%s%s",
+            ptsz->path_to_class,
+            "/sz_auxiliary_files/cobaya_class_sz_likelihoods/cobaya_reference_trispectrum/",
+            "tSZ_c_ell_ref.txt");
+
+        fp=fopen(Filepath, "w");
+        for (index_l=0;index_l<ptsz->nlSZ;index_l++)
+              fprintf(fp,"%e\t %e\n",ptsz->ell[index_l],ptsz->cl_sz[index_l]);
+        fclose(fp);
+  }
+
    if (ptsz->sz_verbose>0){
    write_output_to_files_cl(pnl,pba,ptsz);
    write_output_to_files_ell_indep_ints(pnl,pba,ptsz);
-   show_results(pba,pnl,ppm,ptsz);
+   if (ptsz->sz_verbose>1) show_results(pba,pnl,ppm,ptsz);
  }
    }
 
@@ -129,6 +192,7 @@ int szpowerspectrum_free(struct tszspectrum *ptsz)
    free(ptsz->cov_N_cl);
    free(ptsz->r_N_cl);
    free(ptsz->r_cl_clp);
+   free(ptsz->trispectrum_ref);
 
    free(ptsz->thetas);
    free(ptsz->skyfracs);
@@ -213,13 +277,13 @@ int compute_sz(struct background * pba,
    if (_hmf_){
 
       ptsz->hmf_int = Pvectsz[ptsz->index_integral];
-      printf("hmf_int = %e\n",ptsz->hmf_int );
+      //printf("hmf_int = %e\n",ptsz->hmf_int );
    }
 
    if (_mean_y_){
       ptsz->y_monopole = Pvectsz[ptsz->index_integral];
-      if (ptsz->sz_verbose>0)
-      printf("mean_y = %e\n",ptsz->y_monopole );
+      //if (ptsz->sz_verbose>0)
+      //printf("mean_y = %e\n",ptsz->y_monopole );
    }
 
 
@@ -233,15 +297,15 @@ int compute_sz(struct background * pba,
 
       if (_cov_N_Cl_){
          int index_l = (int) Pvectsz[ptsz->index_multipole];
-
-         for (int index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
+         int index_M_bins;
+         for (index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
 
             ptsz->cov_N_cl[index_l][index_M_bins] = Pvectsz[ptsz->index_integral_cov_N_cl_first+index_M_bins];
 
             //normalised cov:
-            //will be divided by trispectrum at the end
+            //will be divided by cov_cl_cl at the end
             ptsz->r_N_cl[index_l][index_M_bins] = ptsz->cov_N_cl[index_l][index_M_bins]
-                                                                     /sqrt(Pvectsz[ptsz->index_integral_N_for_cov_N_cl_first+index_M_bins]);
+                                                  /sqrt(Pvectsz[ptsz->index_integral_N_for_cov_N_cl_first+index_M_bins]);
 
             //if (ptsz->sz_verbose>0)
             //printf("ell = %e\t M = %e\t cov = %e\n",
@@ -254,12 +318,14 @@ int compute_sz(struct background * pba,
 
    if (_tSZ_trispectrum_){
       int index_l = (int) Pvectsz[ptsz->index_multipole];
-      for (int index_l_prime=0; index_l_prime<index_l+1;index_l_prime++)
+      int index_l_prime;
+      for (index_l_prime=0; index_l_prime<index_l+1;index_l_prime++)
       {
          ptsz->tllprime_sz[index_l][index_l_prime] = Pvectsz[ptsz->index_integral_2h_first+index_l_prime];
-         if (ptsz->sz_verbose>0)
-         printf("ell = %e\tell_prime = %e\t t_llp = %e\n",
-                   ptsz->ell[index_l],ptsz->ell[index_l_prime],ptsz->tllprime_sz[index_l][index_l_prime]);
+         //if (ptsz->sz_verbose>0)
+         //printf("ell = %e\tell_prime = %e\t t_llp = %e\n",
+        //        ptsz->ell[index_l],ptsz->ell[index_l_prime],
+        //        ptsz->tllprime_sz[index_l][index_l_prime]);
 
       }
 
@@ -268,16 +334,15 @@ int compute_sz(struct background * pba,
       if (_tSZ_2halo_){
          int index_l = (int) Pvectsz[ptsz->index_multipole];
          ptsz->cl_sz_2h[index_l] = Pvectsz[ptsz->index_integral_2halo_term];
-         if (ptsz->sz_verbose>0)
-         printf("ell = %e\tcl_sz_2h = %e\n",ptsz->ell[index_l],ptsz->cl_sz_2h[index_l] );
-
+         //if (ptsz->sz_verbose>0)
+         //printf("ell = %e\tcl_sz_2h = %e\n",ptsz->ell[index_l],ptsz->cl_sz_2h[index_l] );
       }
 
       if (_tSZ_te_y_y_){
          int index_l = (int) Pvectsz[ptsz->index_multipole];
          ptsz->cl_te_y_y[index_l] = Pvectsz[ptsz->index_integral_te_y_y];
-         if (ptsz->sz_verbose>0)
-         printf("ell = %e\tcl_te_y_y = %e\n",ptsz->ell[index_l],ptsz->cl_te_y_y[index_l] );
+         //if (ptsz->sz_verbose>0)
+         //printf("ell = %e\tcl_te_y_y = %e\n",ptsz->ell[index_l],ptsz->cl_te_y_y[index_l] );
       }
    }
 
@@ -395,12 +460,12 @@ pvectsz[ptsz->index_dlnMdeltadlnM] = 1.;
       evaluate_pressure_profile(pvecback,pvectsz,pba,ptsz);
       double pressure_profile_at_ell_prime = pvectsz[ptsz->index_pressure_profile];
 
-      pvectsz[ptsz->index_integrand_2h_first+index_l_prime] =  pvectsz[ptsz->index_volume]
-                                                                                          *pvectsz[ptsz->index_hmf]
-                                                                                          *pvectsz[ptsz->index_completeness]
-                                                                                          *pow(pressure_profile_at_ell,2.)
-                                                                                          *pow(pressure_profile_at_ell_prime,2.)
-                                                                                          /(4*_PI_*pow(ptsz->Tcmb_gNU,2.*ptsz->exponent_unit));
+      pvectsz[ptsz->index_integrand_2h_first+index_l_prime] = pvectsz[ptsz->index_volume]
+                                                              *pvectsz[ptsz->index_hmf]
+                                                              *pvectsz[ptsz->index_completeness]
+                                                              *pow(pressure_profile_at_ell,2.)
+                                                              *pow(pressure_profile_at_ell_prime,2.)
+                                                              /(4*_PI_*pow(ptsz->Tcmb_gNU,2.*ptsz->exponent_unit));
          }
    }
 
@@ -414,9 +479,9 @@ pvectsz[ptsz->index_dlnMdeltadlnM] = 1.;
                                                       *pvectsz[ptsz->index_completeness]
                                                       *pow(pressure_profile_at_ell,1.)
                                                       *pow(pvectsz[ptsz->index_volume]
-                                                           *pvectsz[ptsz->index_pk_for_halo_bias]
-                                                           *ptsz->ell[index_l]*(ptsz->ell[index_l]+1.)
-                                                           /(2*_PI_*pow(ptsz->Tcmb_gNU,ptsz->exponent_unit)),0.5);
+                                                      *pvectsz[ptsz->index_pk_for_halo_bias]
+                                                      *ptsz->ell[index_l]*(ptsz->ell[index_l]+1.)
+                                                      /(2*_PI_*pow(ptsz->Tcmb_gNU,ptsz->exponent_unit)),0.5);
 
       }
 
@@ -425,12 +490,12 @@ pvectsz[ptsz->index_dlnMdeltadlnM] = 1.;
             evaluate_temperature_mass_relation(pvecback,pvectsz,pba,ptsz);
 
             pvectsz[ptsz->index_integrand_te_y_y] = pvectsz[ptsz->index_te_of_m]
-                                                                        *pvectsz[ptsz->index_volume]
-                                                                        *pvectsz[ptsz->index_hmf]
-                                                                        *pvectsz[ptsz->index_completeness]
-                                                                        *pow(pvectsz[ptsz->index_pressure_profile],2.)
-                                                                        *ptsz->ell[index_l]*(ptsz->ell[index_l]+1.)
-                                                                        /(2*_PI_*pow(ptsz->Tcmb_gNU,ptsz->exponent_unit));
+                                                    *pvectsz[ptsz->index_volume]
+                                                    *pvectsz[ptsz->index_hmf]
+                                                    *pvectsz[ptsz->index_completeness]
+                                                    *pow(pvectsz[ptsz->index_pressure_profile],2.)
+                                                    *ptsz->ell[index_l]*(ptsz->ell[index_l]+1.)
+                                                    /(2*_PI_*pow(ptsz->Tcmb_gNU,ptsz->exponent_unit));
 
 
          }
@@ -528,15 +593,17 @@ int evaluate_pressure_profile(double * pvecback,
    //printf("ell pp=%e\n",ptsz->ell[index_l]);
 
    //custom gNFW pressure profile or Battaglia et al 2012
-   if (ptsz->pressure_profile == 3 || ptsz->pressure_profile == 4 ){
+   //if (ptsz->pressure_profile == 3 || ptsz->pressure_profile == 4 ){
 
-      class_call(two_dim_ft_pressure_profile(ptsz,pba,pvectsz,&result),
+      /*class_call(two_dim_ft_pressure_profile(ptsz,pba,pvectsz,&result),
                                               ptsz->error_message,
                                               ptsz->error_message);
-   }
+*/
+   //}
 
-   else {
+  // else {
       //printf("ell pp=%e\n",result);
+
       lnx_asked = log(ptsz->ell[index_l]/pvectsz[ptsz->index_l500]);
 
       if(lnx_asked<ptsz->PP_lnx[0] || _mean_y_)
@@ -552,7 +619,9 @@ int evaluate_pressure_profile(double * pvecback,
 
       result = exp(result);
 
-   }
+
+  // }
+
 
 
    pvectsz[ptsz->index_pressure_profile] = result;
@@ -637,16 +706,15 @@ int evaluate_pressure_profile(double * pvecback,
 }
 
 int evaluate_completeness(double * pvecback,
-                                       double * pvectsz,
-                                       struct background * pba,
-                                       struct tszspectrum * ptsz){
+                          double * pvectsz,
+                          struct background * pba,
+                          struct tszspectrum * ptsz){
 
     double comp_at_M_and_z = 0.;
 
 
     if (ptsz->has_completeness_for_ps_SZ == 1){
     comp_at_M_and_z = 0.;
-    //printf("->starting comp ps\n");
 
     double mp_bias = pvectsz[ptsz->index_m500]; //biased mass = M/B
     double redshift = pvectsz[ptsz->index_z];
@@ -685,12 +753,11 @@ int evaluate_completeness(double * pvecback,
     double th1,th2;
 
 
-       if (thp > ptsz->theta_bin_max){
+  if (thp > ptsz->theta_bin_max){
           l1 = ptsz->nthetas - 1;
           l2 = ptsz->nthetas - 2;
           th1 = ptsz->thetas[l1];
           th2 = ptsz->thetas[l2];
-          //printf("above\n");
        }
 
     else if (thp < ptsz->theta_bin_min){
@@ -698,7 +765,6 @@ int evaluate_completeness(double * pvecback,
        l2 = 1;
        th1 = ptsz->thetas[l1];
        th2 = ptsz->thetas[l2];
-       //printf("bellow\n");
     }
 
     else{
@@ -740,20 +806,18 @@ int evaluate_completeness(double * pvecback,
     y = y1 + (y2-y1)/(th2-th1)*(thp-th1);
 
     double c2 = erf_compl_ps(yp,y,sn_cutoff);
-    // c2 *= (1.-erf_compl_ps(yp,y,y_max));
 
     comp_at_M_and_z += c2*ptsz->skyfracs[index_patches];
     sum_skyfracs += ptsz->skyfracs[index_patches];
     }
-    //check if we need the averaging procedure
+    //Now divide by total sky fraction
     comp_at_M_and_z = comp_at_M_and_z/sum_skyfracs;
     }
    if (ptsz->which_ps_sz == 0)
       pvectsz[ptsz->index_completeness] = 1.;
-   else if (ptsz->which_ps_sz == 1)
+   else if (ptsz->which_ps_sz == 1) //ps resolved
       pvectsz[ptsz->index_completeness] = comp_at_M_and_z;
-   else if (ptsz->which_ps_sz == 2)
-      //pvectsz[ptsz->index_completeness] = (1.-comp_at_M_and_z)*sum_skyfracs;
+   else if (ptsz->which_ps_sz == 2) //ps unresolved
       pvectsz[ptsz->index_completeness] = (1.-comp_at_M_and_z);
    return _SUCCESS_;
 }
@@ -796,12 +860,6 @@ int evaluate_halo_bias(double * pvecback,
 
   //Input: wavenumber in 1/Mpc
   //Output: total matter power spectrum P(k) in \f$ Mpc^3 \f$
-   //class_call(spectra_pk_at_k_and_z(pba,ppm,pnl,k*pba->h,z,&pk,pk_ic),
-  //                 pnl->error_message,
-  //                 pnl->error_message);
-
-
-
      class_call(nonlinear_pk_at_k_and_z(
                                        pba,
                                        ppm,
@@ -817,11 +875,8 @@ int evaluate_halo_bias(double * pvecback,
                                      pnl->error_message);
 
 
-//P(k) in units of h^-3 Mpc^3
+   //now compute P(k) in units of h^-3 Mpc^3
    pvectsz[ptsz->index_pk_for_halo_bias] = pk*pow(pba->h,3.); //in units Mpc^3/h^3
-
-
-
    return _SUCCESS_;
 }
 
@@ -1281,16 +1336,11 @@ return _SUCCESS_;
 }
 
 int write_output_to_files_cl(struct nonlinear * pnl,
-                                           struct background * pba,
-                                           struct tszspectrum * ptsz){
-   //This block has to be commented
-   //when using the Python wrapper
-   //or alternatively set sz_verbose=0
-
+                             struct background * pba,
+                             struct tszspectrum * ptsz){
 
 
    int index_l;
-
    char Filepath[_ARGUMENT_LENGTH_MAX_];
 
    if (ptsz->sz_verbose > 0)
@@ -1306,7 +1356,7 @@ int write_output_to_files_cl(struct nonlinear * pnl,
                   ".txt");
 
 
-      printf("Writing output files in %s\n",Filepath);
+      //printf("Writing output files in %s\n",Filepath);
 
       fp=fopen(Filepath, "w");
 
@@ -1334,9 +1384,7 @@ int write_output_to_files_cl(struct nonlinear * pnl,
 
          double sig_cl_squared;
          double ell = ptsz->ell[index_l];
-         sig_cl_squared = 2.*pow(ptsz->cl_sz[index_l]/
-                                             (ell*(ell+1.))*2.*_PI_,2.)
-                                             /(2.*ell+1.);
+         sig_cl_squared = 2.*pow(ptsz->cl_sz[index_l]/(ell*(ell+1.))*2.*_PI_,2.)/(2.*ell+1.);
 
 
          //binned gaussian variance
@@ -1373,41 +1421,48 @@ int write_output_to_files_cl(struct nonlinear * pnl,
 
          ptsz->cov_cl_cl[index_l] = sig_cl_squared_binned +  ptsz->tllprime_sz[index_l][index_l];
 
-
-         for (int index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
+         int index_M_bins;
+         for (index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
             ptsz->r_N_cl[index_l][index_M_bins] = ptsz->r_N_cl[index_l][index_M_bins]/sqrt(ptsz->cov_cl_cl[index_l]);
 
          }
 
-
-
-
             fprintf(fp,
-                        "%e\t\t %e\t\t %e\t\t %e\t\t %e\t\t%e\t\t%e\t\t%e\n",
-                        ptsz->ell[index_l],
-                        ptsz->cl_sz[index_l],
-                        sig_cl_squared,
-                        ptsz->tllprime_sz[index_l][index_l],
-                        sig_cl_squared_binned,
-                        ell*(ell+1.)/(2.*_PI_)
-                        *sqrt(sig_cl_squared_binned+ptsz->tllprime_sz[index_l][index_l]),
-                        ptsz->cl_sz_2h[index_l],
-                        ptsz->cl_te_y_y[index_l]/ptsz->cl_sz[index_l]
-                        );
+                    "%e\t\t %e\t\t %e\t\t %e\t\t %e\t\t%e\t\t%e\t\t%e\n",
+                    ptsz->ell[index_l],
+                    ptsz->cl_sz[index_l],
+                    sig_cl_squared,
+                    ptsz->tllprime_sz[index_l][index_l],
+                    sig_cl_squared_binned,
+                    ell*(ell+1.)/(2.*_PI_)
+                    *sqrt(sig_cl_squared_binned+ptsz->tllprime_sz[index_l][index_l]),
+                    ptsz->cl_sz_2h[index_l],
+                    ptsz->cl_te_y_y[index_l]/ptsz->cl_sz[index_l]
+                    );
 
       }
       printf("->Output written in %s\n",Filepath);
       fclose(fp);
 
     }
-
+      int index_l_prime;
+      double ell_prime;
+      double ell;
       for (index_l=0;index_l<ptsz->nlSZ;index_l++)
-         for (int index_l_prime=0;index_l_prime<index_l+1;index_l_prime++) {
-            ptsz->r_cl_clp[index_l][index_l_prime] = ptsz->tllprime_sz[index_l][index_l_prime]
-                                                                         /sqrt(ptsz->cov_cl_cl[index_l])
-                                                                         /sqrt(ptsz->cov_cl_cl[index_l_prime]);
+         for (index_l_prime=0;index_l_prime<index_l+1;index_l_prime++) {
+           ptsz->r_cl_clp[index_l][index_l_prime] = ptsz->tllprime_sz[index_l][index_l_prime]
+                                                                        /sqrt(ptsz->cov_cl_cl[index_l])
+                                                                        /sqrt(ptsz->cov_cl_cl[index_l_prime]);
 
-            ptsz->r_cl_clp[index_l_prime][index_l] = ptsz->r_cl_clp[index_l][index_l_prime];
+           ptsz->r_cl_clp[index_l_prime][index_l] = ptsz->r_cl_clp[index_l][index_l_prime];
+
+           ell_prime = ptsz->ell[index_l_prime];
+           ell = ptsz->ell[index_l];
+           ptsz->trispectrum_ref[index_l][index_l_prime] = ell*(ell+1.)/(2.*_PI_)*ell_prime*(ell_prime+1.)/(2.*_PI_)*ptsz->tllprime_sz[index_l][index_l_prime];
+
+           ptsz->trispectrum_ref[index_l_prime][index_l] = ptsz->trispectrum_ref[index_l][index_l_prime];
+
+
 
          };
 
@@ -1424,9 +1479,9 @@ if (ptsz->has_sz_cov_N_Cl){
 
       fp=fopen(Filepath, "w");
 
-
+      int index_M_bins;
       for (index_l=0;index_l<ptsz->nlSZ;index_l++){
-         for (int index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
+         for (index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
             fprintf(fp,"%e\t",ptsz->cov_N_cl[index_l][index_M_bins]);
       }
          fprintf(fp,"\n");
@@ -1443,7 +1498,7 @@ if (ptsz->has_sz_cov_N_Cl){
 
 
       for (index_l=0;index_l<ptsz->nlSZ;index_l++){
-         for (int index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
+         for (index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++){
             fprintf(fp,"%e\t",ptsz->r_N_cl[index_l][index_M_bins]);
          }
          fprintf(fp,"\n");
@@ -1463,15 +1518,17 @@ if (ptsz->has_sz_cov_N_Cl){
 
       fp=fopen(Filepath, "w");
 
-
+      int index_l_prime;
       for (index_l=0;index_l<ptsz->nlSZ;index_l++){
-       for (int index_l_prime=0;index_l_prime<ptsz->nlSZ;index_l_prime++) {
+       for (index_l_prime=0;index_l_prime<ptsz->nlSZ;index_l_prime++) {
             fprintf(fp,"%e\t",ptsz->r_cl_clp[index_l][index_l_prime]);
          }
          fprintf(fp,"\n");
       }
       fclose(fp);
 }
+
+
 
 
    }
@@ -1647,9 +1704,9 @@ int show_results(struct background * pba,
                          struct primordial * ppm,
                          struct tszspectrum * ptsz){
 
-    printf("#1:ell\t\t\t 2:y^2 (tSZ)\n");
-
-   for (int index_l=0;index_l<ptsz->nlSZ;index_l++){
+  printf("#1:ell\t\t\t 2:y^2 (tSZ)\n");
+   int index_l;
+   for (index_l=0;index_l<ptsz->nlSZ;index_l++){
 
    //if (ptsz->ell[index_l]==0) ptsz->y_monopole = cl/pow(ptsz->Tcmb_gNU,1)/1.e6;
    //divide by gNU at 150GHz cause it was in Komatsu's formula
@@ -1663,8 +1720,8 @@ int show_results(struct background * pba,
  if (ptsz->has_sz_trispec){
 
     printf("\n");
-
-      for (int index_l_prime=0;index_l_prime<index_l+1;index_l_prime++)
+      int index_l_prime;
+      for (index_l_prime=0;index_l_prime<index_l+1;index_l_prime++)
       {
 
 
@@ -1677,7 +1734,8 @@ printf("\n");
 
 }
  if (ptsz->has_sz_cov_N_Cl){
-      for (int index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++)
+      int index_M_bins;
+      for (index_M_bins=0;index_M_bins<ptsz->nbins_M-1;index_M_bins++)
       {
 
 
@@ -1808,8 +1866,8 @@ int select_multipole_array(struct tszspectrum * ptsz)
                            ptsz->nlSZ*sizeof(double),
                            ptsz->error_message);
 
-
-      for (int i=0;i<ptsz->nlSZ;i++)
+      int i;
+      for (i=0;i<ptsz->nlSZ;i++)
          ptsz->ell_mock[i] = exp(log(ptsz->ell_min_mock)+i*ptsz->dlogell);
    }
 
@@ -1818,8 +1876,8 @@ int select_multipole_array(struct tszspectrum * ptsz)
 
 
    class_alloc(ptsz->ell,sizeof(double *)*ptsz->nlSZ,ptsz->error_message);
-
-   for (int index_l=0;index_l<ptsz->nlSZ;index_l++)
+   int index_l;
+   for (index_l=0;index_l<ptsz->nlSZ;index_l++)
    {
       if (ptsz->ell_sz == 0)
          ptsz->ell[index_l] = pow(10.,1.+1.*index_l*0.2);
@@ -1849,7 +1907,8 @@ int initialise_and_allocate_memory(struct tszspectrum * ptsz){
 
 
    class_alloc(ptsz->ln_x_for_pp, ptsz->ln_x_size_for_pp*sizeof(double),ptsz->error_message);
-   for (int i=0;i<ptsz->ln_x_size_for_pp;i++){
+   int i;
+   for (i=0;i<ptsz->ln_x_size_for_pp;i++){
       ptsz->ln_x_for_pp[i] = log(ptsz->x_inSZ)+i*(log(ptsz->x_outSZ)-log(ptsz->x_inSZ))/(ptsz->ln_x_size_for_pp-1.);
       //printf("M = %e \t i=%d\n",ptsz->M_bins[i],i);
    }
@@ -2002,30 +2061,34 @@ int initialise_and_allocate_memory(struct tszspectrum * ptsz){
    class_alloc(ptsz->cl_sz_2h,sizeof(double *)*ptsz->nlSZ,ptsz->error_message);
 
    class_alloc(ptsz->tllprime_sz,ptsz->nlSZ*sizeof(double *),ptsz->error_message);
+   class_alloc(ptsz->trispectrum_ref,ptsz->nlSZ*sizeof(double *),ptsz->error_message);
    class_alloc(ptsz->r_cl_clp,ptsz->nlSZ*sizeof(double *),ptsz->error_message);
    class_alloc(ptsz->cov_N_cl,ptsz->nlSZ*sizeof(double *),ptsz->error_message);
    class_alloc(ptsz->r_N_cl,ptsz->nlSZ*sizeof(double *),ptsz->error_message);
-
-   for (int index_l=0;index_l<ptsz->nlSZ;index_l++){
+   int index_l,index_l_prime;
+   for (index_l=0;index_l<ptsz->nlSZ;index_l++){
       ptsz->cl_sz[index_l] = 0.;
       ptsz->cl_te_y_y[index_l] = 0.;
       ptsz->cl_sz_2h[index_l] = 0.;
       ptsz->cov_cl_cl[index_l] = 0.;
 
       class_alloc(ptsz->tllprime_sz[index_l],(index_l+1)*sizeof(double),ptsz->error_message);
+      class_alloc(ptsz->trispectrum_ref[index_l],ptsz->nlSZ*sizeof(double),ptsz->error_message);
       class_alloc(ptsz->r_cl_clp[index_l],ptsz->nlSZ*sizeof(double),ptsz->error_message);
       class_alloc(ptsz->cov_N_cl[index_l],(ptsz->nbins_M-1)*sizeof(double),ptsz->error_message);
       class_alloc(ptsz->r_N_cl[index_l],(ptsz->nbins_M-1)*sizeof(double),ptsz->error_message);
 
-      for (int index_l_prime = 0; index_l_prime<index_l+1; index_l_prime ++){
+      for (index_l_prime = 0; index_l_prime<index_l+1; index_l_prime ++){
          ptsz->tllprime_sz[index_l][index_l_prime] = 0.;
       }
 
-      for (int index_l_prime = 0; index_l_prime<ptsz->nlSZ; index_l_prime ++)
-            ptsz->r_cl_clp[index_l][index_l_prime] = 0.;
+      for (index_l_prime = 0; index_l_prime<ptsz->nlSZ; index_l_prime ++){
+        ptsz->r_cl_clp[index_l][index_l_prime] = 0.;
+        ptsz->trispectrum_ref[index_l][index_l_prime] = 0.;
+          }
 
-
-      for (int index_M_bins = 0; index_M_bins<ptsz->nbins_M-1; index_M_bins ++){
+      int index_M_bins;
+      for (index_M_bins = 0; index_M_bins<ptsz->nbins_M-1; index_M_bins ++){
          ptsz->cov_N_cl[index_l][index_M_bins] = 0.;
          ptsz->r_N_cl[index_l][index_M_bins] = 0.;
       }

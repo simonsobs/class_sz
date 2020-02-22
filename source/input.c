@@ -553,6 +553,30 @@ int input_init(
     fclose(param_unused);
   }
 
+  if(ptsz->create_ref_trispectrum_for_cobaya){
+
+    sprintf(param_output_name,"%s%s",ptsz->path_to_class,"/sz_auxiliary_files/cobaya_class_sz_likelihoods/cobaya_reference_trispectrum/tSZ_params_ref.txt");
+
+    class_open(param_output,param_output_name,"w",errmsg);
+
+    fprintf(param_output,"# List of input/precision parameters actually read\n");
+    fprintf(param_output,"# (all other parameters set to default values)\n");
+    fprintf(param_output,"# Obtained with CLASS %s (for developers: svn version %s)\n",_VERSION_,_SVN_VERSION_);
+    fprintf(param_output,"#\n");
+    fprintf(param_output,"# This file can be used as the input file of another run\n");
+    fprintf(param_output,"#\n");
+
+
+    for (i=0; i<pfc->size; i++)
+    fprintf(param_output,"%s = %s\n",pfc->name[i],pfc->value[i]);
+
+
+    fprintf(param_output,"#\n");
+
+    fclose(param_output);
+
+  }
+
   class_call(parser_read_string(pfc,"write warnings",&string1,&flag1,errmsg),
              errmsg,
              errmsg);
@@ -1670,9 +1694,10 @@ int input_read_parameters(
       class_read_int("nlSZ",ptsz->nlSZ);
 
       class_read_int("which_ps_SZ",ptsz->which_ps_sz);
+      //if ps resolved (1) or unresolved (2) --> need completeness
       if(ptsz->which_ps_sz == 1 || ptsz->which_ps_sz == 2 )
         ptsz->has_completeness_for_ps_SZ = 1;
-      //  log(ptsz->ell_max_mock) - log(ptsz->ell_min_mock))/ptsz->dlogell
+
       class_read_double("ell_max_mock",ptsz->ell_max_mock);
       class_read_double("ell_min_mock",ptsz->ell_min_mock);
       class_read_double("dlogell",ptsz->dlogell);
@@ -1936,6 +1961,17 @@ int input_read_parameters(
               ptsz->effective_temperature=2;
 
         }
+
+        class_call(parser_read_string(pfc,"create_ref_trispectrum_for_cobaya",&string1,&flag1,errmsg),
+                   errmsg,
+                   errmsg);
+        if (flag1 == _TRUE_) {
+            if ((strstr(string1,"YES") != NULL))
+                ptsz->create_ref_trispectrum_for_cobaya=1;
+            else
+                ptsz->create_ref_trispectrum_for_cobaya=0;
+        }
+
 
     /* HMF prescription for massive neutrinos SZ */
       class_call(parser_read_string(pfc,"HMF_prescription_NCDM",&string1,&flag1,errmsg),
@@ -3845,10 +3881,10 @@ int input_default_params(
   //BB: SZ parameters default values
   ptsz->write_sz = _FALSE_;
   ptsz->ell_sz = 1;
-  ptsz->nlSZ = 10;
+  ptsz->nlSZ = 18;
   ptsz->concentration_parameter=0;
-  ptsz->pressure_profile=0;
   ptsz->effective_temperature=0;
+  ptsz->create_ref_trispectrum_for_cobaya=0;
 
 
   pcsz->redshift_for_dndm = 1.e-5;
@@ -3860,7 +3896,10 @@ int input_default_params(
 
 
   ptsz->has_completeness_for_ps_SZ = 0;
+
+  //default: total power spectrum (no completeness cut)
   ptsz->which_ps_sz = 0; //0: total, 1: resolved, 2: unresolved
+
   //Redshift limits for the integration
   ptsz->z1SZ = 1.e-5;
   ptsz->z2SZ = 4.;
@@ -3881,7 +3920,7 @@ int input_default_params(
   //See Komatsu
   ptsz->x_inSZ = 1.e-5; //KS02
   ptsz->x_outSZ = 6.; //KS02
-  ptsz->ln_x_size_for_pp = 100;
+  ptsz->ln_x_size_for_pp = 1000;
 
   ptsz->P0GNFW = 6.41;
   ptsz->c500 = 1.81;
@@ -3901,8 +3940,8 @@ int input_default_params(
   pcsz->mass_range = 1;//szcount masses
   ptsz->experiment = 0; //planck
 
-  pcsz->ystar = -0.19;
-  pcsz->alpha = 1.78;
+  pcsz->ystar = -0.186; //-0.186 ref. value in SZ_plus_priors.ini (cosmomc)
+  pcsz->alpha = 1.789; //1.789 ref. value in SZ_plus_priors.ini (cosmomc)
   pcsz->sigmaM = 0.075; //in log10 see tab 1 of planck cc 2015 paper
 
   ptsz->temperature_mass_relation=0;

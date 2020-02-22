@@ -18,7 +18,7 @@ int szcount_init(struct background * pba,
   if (pcsz->has_sz_counts == _FALSE_)
   {
     if (pcsz->sz_verbose > 0)
-      printf("No SZ cluster counts requested. SZ cluster count module skipped.\n");
+      printf("->No SZ cluster counts requested. SZ cluster count module skipped.\n");
   }
 
   else
@@ -178,7 +178,8 @@ private(tstart, tstop,pvecsz)
     class_alloc_parallel(pvecsz,
                          pcsz->pvecsz_size*sizeof(double),
                          pcsz->error_message);
-    for(int i = 0; i<pcsz->pvecsz_size;i++) pvecsz[i] = 0.;
+    int i;
+    for(i = 0; i<pcsz->pvecsz_size;i++) pvecsz[i] = 0.;
 
 #pragma omp for schedule (dynamic)
     for (index_y=0; index_y<pcsz->Nbins_y+1; index_y ++){
@@ -264,8 +265,8 @@ private(tstart, tstop,pvecsz)
 
   Pvectsz[ptsz->index_md] = ptsz->index_md_hmf;
 
-
-  for (int i=0;i<pcsz->nzSZ;i++)
+  int i;
+  for (i=0;i<pcsz->nzSZ;i++)
   {
     pcsz->redshift[i] =
     exp(log(1.+ z1SZ)+i*(log(1.+ z2SZ)-log(1.+ z1SZ))/(1.*pcsz->nzSZ-1.))-1.;
@@ -285,8 +286,8 @@ private(tstart, tstop,pvecsz)
 
     pcsz->dndz[i] = Pvectsz[ptsz->index_integrals_over_m_first];
     */
-
-    for (int j=0;j<pcsz->size_logM;j++)
+    int j;
+    for (j=0;j<pcsz->size_logM;j++)
     {
       if (i==0) log_Y[j]=pcsz->logM_at_z[j]*log(10.);
 
@@ -393,19 +394,10 @@ private(tstart, tstop,pvecsz)
     double rz = d_A*(1.+pcsz->steps_z[index_z]);
     double volume = 3.0e8/1.0e5*rz*rz/Eh;
 
-
-
-    /////TEST WITH CAMB settings
-    double z_camb=pcsz->steps_z[index_z];
-    double a_camb=1.0/(1.0+z_camb);
-    double Eh_camb=sqrt(ptsz->Omega_m_0*pow(a_camb,-3));
-    //volume=1.;
-
-
-    double deg2 = 3.046174198e-4;
-    //if (ptsz->experiment == 0) deg2 *= 41253.0; //Planck
-    //if (ptsz->experiment == 1) deg2 *= 599.353; //SO
-    deg2 *= 599.353;
+    //survey area
+    double deg2= 3.046174198e-4;
+    if (ptsz->experiment == 0) deg2 *= 41253.0; //Planck full-sky
+    if (ptsz->experiment == 1) deg2 *= 599.353; //SO
 
     double HMF;
 
@@ -524,6 +516,7 @@ private(tstart, tstop,pvecsz)
           }
 
           SUM2 = SUM2 +0.5*(f1*c1+f2*c2)*(x2-x1)*pcsz->dlnM;
+          //SUM2 = SUM2 +0.5*(c1+c2)*(x2-x1)*pcsz->dlnM;
           SUM2_temp_0 = SUM2_temp_0 +0.5*(f1_temp_0*d_c1_dq+f2_temp_0*d_c2_dq)*(x2-x1)*pcsz->dlnM;
           SUM2_temp_1 = SUM2_temp_1 +0.5*(f1_temp_1*d_c1_dq+f2_temp_1*d_c2_dq)*(x2-x1)*pcsz->dlnM;
         }
@@ -576,7 +569,8 @@ private(tstart, tstop,pvecsz)
 
       double SUM2 = 0.;
 
-      for (int jj=j1;jj<j2-1;jj++){
+      int jj;
+      for (jj=j1;jj<j2-1;jj++){
 
         double x1 = pcsz->steps_z[jj];
         double x2 = pcsz->steps_z[jj+1];
@@ -1059,12 +1053,11 @@ if (pcsz->sz_verbose > 0)
 
   double total_counts = 0.;
   for (j=0;j<pcsz->Nbins_z;j++){
-
-    for (i=0;i<1;i++){
+    for (i=0;i<pcsz->Nbins_y+1;i++){
       total_counts += pcsz->dNdzdy_theoretical[j][i];
       printf("%e\t",pcsz->dNdzdy_theoretical[j][i]);
     }
-    printf("\n");
+    printf(" ------ \n");
   }
   printf("total counts = %e\n", total_counts);
 
@@ -1153,7 +1146,8 @@ int initialise_and_allocate_memory_cc(struct tszspectrum * ptsz,struct szcount *
   class_alloc(pcsz->logM_at_z,sizeof(double)*pcsz->size_logM,pcsz->error_message);
   class_alloc(pcsz->dndmdz,pcsz->size_logM*sizeof(double *),pcsz->error_message);
 
-  for (int i=0;i<pcsz->size_logM;i++){
+  int i;
+  for (i=0;i<pcsz->size_logM;i++){
     pcsz->logM_at_z[i] = 10.+i*7./(pcsz->size_logM-1);
     class_alloc(pcsz->dndmdz[i],pcsz->nzSZ*sizeof(double),pcsz->error_message);
   }
@@ -1165,7 +1159,7 @@ int initialise_and_allocate_memory_cc(struct tszspectrum * ptsz,struct szcount *
 if(ptsz->experiment == 0) pcsz->sn_cutoff = 6.;
 if(ptsz->experiment == 1) pcsz->sn_cutoff = 5.;
 
-  pcsz->alpha; //1.78;
+  pcsz->alpha;
   pcsz->ystar = pow(10.,pcsz->ystar)/pow(2., pcsz->alpha)*0.00472724;//8.9138435358806980e-004;
   pcsz->beta = 0.66;
   pcsz->thetastar = 6.997;
@@ -1184,7 +1178,7 @@ if(ptsz->experiment == 1) pcsz->sn_cutoff = 5.;
 
   }
 
-  pcsz->dlnM = 0.05;
+  pcsz->dlnM = 0.05; //0.05 ref value in szcounts.f90
 
 
   pcsz->nsteps_m = floor((pcsz->lnM_max - pcsz->lnM_min) /pcsz->dlnM);
