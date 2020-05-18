@@ -171,18 +171,23 @@ for (index_integrand=0;index_integrand<ptsz->number_of_integrands;index_integran
         fclose(fp);
   }
 
+     
    if (ptsz->sz_verbose>0){
    write_output_to_files_cl(pnl,pba,ptsz);
+     
    write_output_to_files_ell_indep_ints(pnl,pba,ptsz);
    if (ptsz->sz_verbose>1) show_results(pba,pnl,ppm,ptsz);
  }
    }
+  
+  
 
    return _SUCCESS_;
 }
 
 int szpowerspectrum_free(struct tszspectrum *ptsz)
 {
+  
    free(ptsz->ell);
    free(ptsz->cl_sz);
    free(ptsz->cl_te_y_y);
@@ -198,13 +203,15 @@ int szpowerspectrum_free(struct tszspectrum *ptsz)
    free(ptsz->skyfracs);
    free(ptsz->ylims);
 
-   free(ptsz->SO_Qfit);
-   free(ptsz->SO_thetas);
 
 
-   free(ptsz->SO_RMS);
-   free(ptsz->SO_skyfrac);
 
+  if (ptsz->experiment == 1){
+    free(ptsz->SO_Qfit);
+    free(ptsz->SO_thetas);
+    free(ptsz->SO_RMS);
+    free(ptsz->SO_skyfrac);
+  }
    free(ptsz->w_gauss);
    free(ptsz->x_gauss);
 
@@ -1363,10 +1370,13 @@ int write_output_to_files_cl(struct nonlinear * pnl,
 
       fprintf(fp,"#Input mass bias b = %e\n",
                   1.-1./ptsz->HSEbias);
+ 
       fprintf(fp,"#sigma8 = %e\n",
                   pnl->sigma8[pnl->index_pk_m]);
+ 
       fprintf(fp,"#Omega_m = %e\n",
                   ptsz->Omega_m_0);
+
       fprintf(fp,"#h = %e\n",
                   pba->h);
       fprintf(fp,"#temperature_mass_relation = %d\n",
